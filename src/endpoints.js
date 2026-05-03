@@ -1,31 +1,36 @@
-const db = require('./database');
+const getDb = require('./database');
 const { v4: uuidv4 } = require('uuid');
 
 class Endpoints {
-  static create(url, secret) {
+  static async create(url, secret) {
+    const db = await getDb();
     const id = uuidv4();
     const stmt = db.prepare('INSERT INTO endpoints (id, url, secret) VALUES (?, ?, ?)');
     stmt.run(id, url, secret);
     return this.getById(id);
   }
 
-  static getById(id) {
+  static async getById(id) {
+    const db = await getDb();
     const stmt = db.prepare('SELECT * FROM endpoints WHERE id = ?');
     return stmt.get(id);
   }
 
-  static getAll() {
+  static async getAll() {
+    const db = await getDb();
     const stmt = db.prepare('SELECT * FROM endpoints ORDER BY created_at DESC');
     return stmt.all();
   }
 
-  static delete(id) {
+  static async delete(id) {
+    const db = await getDb();
     const stmt = db.prepare('DELETE FROM endpoints WHERE id = ?');
     const result = stmt.run(id);
     return result.changes > 0;
   }
 
-  static update(id, data) {
+  static async update(id, data) {
+    const db = await getDb();
     const fields = [];
     const values = [];
 

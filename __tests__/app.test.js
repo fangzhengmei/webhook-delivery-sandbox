@@ -1,18 +1,27 @@
 const request = require('supertest');
 const app = require('../src/app');
-const db = require('../src/database');
+const getDb = require('../src/database');
 const WebhookService = require('../src/webhookService');
 
-beforeEach(() => {
-  db.exec(`
-    DELETE FROM delivery_history;
-    DELETE FROM event_queue;
-    DELETE FROM endpoints;
-  `);
+let db;
+
+beforeAll(async () => {
+  process.env.NODE_ENV = 'test';
+  db = await getDb();
 });
 
-afterAll(() => {
-  db.close();
+beforeEach(async () => {
+  if (db) {
+    db.exec('DELETE FROM delivery_history');
+    db.exec('DELETE FROM event_queue');
+    db.exec('DELETE FROM endpoints');
+  }
+});
+
+afterAll(async () => {
+  if (db) {
+    db.close();
+  }
 });
 
 describe('Endpoints API', () => {

@@ -1,4 +1,4 @@
-const db = require('./database');
+const getDb = require('./database');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const https = require('https');
@@ -6,7 +6,8 @@ const http = require('http');
 const url = require('url');
 
 class WebhookService {
-  static enqueueEvent(endpointId, payload) {
+  static async enqueueEvent(endpointId, payload) {
+    const db = await getDb();
     const id = uuidv4();
     const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
     
@@ -19,12 +20,14 @@ class WebhookService {
     return this.getEventById(id);
   }
 
-  static getEventById(id) {
+  static async getEventById(id) {
+    const db = await getDb();
     const stmt = db.prepare('SELECT * FROM event_queue WHERE id = ?');
     return stmt.get(id);
   }
 
-  static getPendingEvents() {
+  static async getPendingEvents() {
+    const db = await getDb();
     const stmt = db.prepare(`
       SELECT * FROM event_queue 
       WHERE status = 'pending' 
@@ -41,16 +44,17 @@ class WebhookService {
   }
 
   static async deliverEvent(event) {
+    const db = await getDb();
     const endpointStmt = db.prepare('SELECT * FROM endpoints WHERE id = ?');
     const endpoint = endpointStmt.get(event.endpoint_id);
     
     if (!endpoint) {
-      this.updateEventStatus(event.id, 'failed', 'Endpoint not found');
+      await this.updateEventStatus(event.id, 'failed', 'Endpoint not found');
       return { success: false, error: 'Endpoint not found' };
     }
 
     if (!endpoint.is_active) {
-      this.updateEventStatus(event.id, 'failed', 'Endpoint is inactive');
+      await this.updateEventStatus(event.id, 'failed', 'Endpoint is inactive');
       return { success: false, error: 'Endpoint is inactive' };
     }
 
@@ -80,28 +84,28 @@ class WebhookService {
           responseBody += chunk;
         });
         
-        res.on('end', () => {
+        res.on('end', async () => {
           const success = res.statusCode >= 200 && res.statusCode < 300;
           
           if (success) {
-            this.updateEventStatus(event.id, 'delivered');
-            this.recordDeliveryHistory(event.id, event.endpoint_id, 'delivered', res.statusCode, responseBody, null, event.retry_count + 1);
+            await this.updateEventStatus(event.id, 'delivered');
+            await this.recordDeliveryHistory(event.id, event.endpoint_id, 'delivered', res.statusCode, responseBody, null, event.retry_count + 1);
             resolve({ success: true, statusCode: res.statusCode, body: responseBody });
           } else {
-            this.handleFailedDelivery(event, res.statusCode, responseBody);
+            await this.handleFailedDelivery(event, res.statusCode, responseBody);
             resolve({ success: false, statusCode: res.statusCode, body: responseBody });
           }
         });
       });
       
-      req.on('error', (error) => {
-        this.handleFailedDelivery(event, null, null, error.message);
+      req.on('error', async (error) => {
+        await this.handleFailedDelivery(event, null, null, error.message);
         resolve({ success: false, error: error.message });
       });
       
-      req.setTimeout(30000, () => {
+      req.setTimeout(30000, async () => {
         req.destroy();
-        this.handleFailedDelivery(event, null, null, 'Request timeout');
+        await this.handleFailedDelivery(event, null, null, 'Request timeout');
         resolve({ success: false, error: 'Request timeout' });
       });
       
@@ -110,12 +114,13 @@ class WebhookService {
     });
   }
 
-  static handleFailedDelivery(event, responseStatus, responseBody, errorMessage) {
+  static async handleFailedDelivery(event, responseStatus, responseBody, errorMessage) {
+    const db = await getDb();
     const newRetryCount = event.retry_count + 1;
     
     if (newRetryCount >= event.max_retries) {
-      this.updateEventStatus(event.id, 'failed', 'Max retries reached');
-      this.recordDeliveryHistory(
+      await this.updateEventStatus(event.id, 'failed', 'Max retries reached');
+      await this.recordDeliveryHistory(
         event.id, 
         event.endpoint_id, 
         'failed', 
@@ -134,7 +139,7 @@ class WebhookService {
       `);
       updateStmt.run(newRetryCount, nextRetryAt, event.id);
       
-      this.recordDeliveryHistory(
+      await this.recordDeliveryHistory(
         event.id, 
         event.endpoint_id, 
         'failed', 
@@ -153,7 +158,8 @@ class WebhookService {
     return now.toISOString().replace('T', ' ').substring(0, 19);
   }
 
-  static updateEventStatus(eventId, status, errorMessage = null) {
+  static async updateEventStatus(eventId, status, errorMessage = null) {
+    const db = await getDb();
     const updateStmt = db.prepare(`
       UPDATE event_queue 
       SET status = ? 
@@ -162,7 +168,8 @@ class WebhookService {
     updateStmt.run(status, eventId);
   }
 
-  static recordDeliveryHistory(eventId, endpointId, status, responseStatus, responseBody, errorMessage, attempt) {
+  static async recordDeliveryHistory(eventId, endpointId, status, responseStatus, responseBody, errorMessage, attempt) {
+    const db = await getDb();
     const id = uuidv4();
     const insertStmt = db.prepare(`
       INSERT INTO delivery_history 
@@ -181,7 +188,8 @@ class WebhookService {
     );
   }
 
-  static getDeliveryHistory(filters = {}) {
+  static async getDeliveryHistory(filters = {}) {
+    const db = await getDb();
     let query = 'SELECT * FROM delivery_history WHERE 1=1';
     const params = [];
 
@@ -201,8 +209,8 @@ class WebhookService {
     return stmt.all(...params);
   }
 
-  static processQueue() {
-    const events = this.getPendingEvents();
+  static async processQueue() {
+    const events = await this.getPendingEvents();
     
     for (const event of events) {
       this.deliverEvent(event);
