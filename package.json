@@ -1,0 +1,27 @@
+{
+  "name": "webhook-delivery-sandbox",
+  "version": "1.0.0",
+  "description": "Webhook 投递沙箱系统",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "jest --detectOpenHandles"
+  },
+  "keywords": [
+    "webhook",
+    "express",
+    "sqlite",
+    "jest"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.2.2",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  }
+}
